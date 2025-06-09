@@ -4,7 +4,7 @@
 
 ## Overview
 
-This project explores predictive modeling of student enrollment decisions using **logistic regression**, with a focus on addressing **class imbalance** in the dataset. The original dataset includes demographic and behavioral information for over 18,000 student applications. The target variable `enrollment` is highly imbalanced, with significantly more students not enrolling than enrolling.
+This project explores predictive modeling of student enrollment decisions using logistic regression, with a focus on addressing class imbalance in the dataset. The original dataset includes demographic and behavioral information for over 18,000 student applications. The target variable `enrollment` is highly imbalanced, with significantly more students not enrolling than enrolling.
 
 To address this, the following three strategies are implemented and compared:
 
