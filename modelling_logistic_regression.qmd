@@ -1,0 +1,236 @@
+---
+title: "Logistic Regression with Imbalanced Data"
+author: "Anna Ceslavska"
+format:
+  html:
+    self-contained: true
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    theme: cosmo
+editor: visual
+---
+
+```{r, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(caret)
+library(janitor)
+library(DMwR2)
+library(themis)
+library(ROSE)
+library(glmnet)
+library(here)
+library(readxl)
+library(rsample)
+
+file <- here("enrollment3.xlsx")
+admits <- read_excel(file)
+```
+
+```{r}
+admits <- admits %>%
+  mutate(enrollment = enrolling_stage) %>%
+  select(-year, -period, -prospect_id, -enrolling_stage)  # drop unused/reference vars
+```
+
+## Introduction
+
+In this section, I aim to predict student enrollment using logistic regression. One of the main challenges is the class imbalance in the dataset: most students do not enroll, making it difficult for standard classifiers to learn meaningful decision boundaries.
+
+```{r}
+ggplot(admits, aes(x = factor(enrollment, labels = c("Didn't Enroll", "Enrolled")),
+                        fill = factor(enrollment, labels = c("No", "Yes")))) +
+ geom_bar(width = 0.4) +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(x = "Erollment Status",
+       y = "Students Count",
+       title = "Distribution of Students Enrollment",
+       fill = "Enrolled?") +
+  theme_minimal()
+```
+
+To address this, I apply and compare three common techniques for handling imbalanced data:
+
+-   **Undersampling** the majority class
+-   **SMOTE** (Synthetic Minority Oversampling Technique)
+-   **Weighted logistic regression**
+
+To prepare the dataset for classification modeling, I first converted the target variable, `enrollment`, into a factor with levels `0` (not enrolled) and `1` (enrolled). This ensures compatibility with classification algorithms in R, which require the response variable to be categorical
+
+```{r}
+# Convert target to factor
+admits$enrollment <- factor(admits$enrollment, levels = c(0, 1))
+```
+
+Next, I split the dataset into a training and testing set using a 70/30 ratio. To preserve the class distribution of the target variable (`enrollment`) and avoid introducing bias due to class imbalance, I used stratified sampling. This step ensures both subsets maintain a proportional representation of each class, which is crucial for evaluating model performance accurately.
+
+```{r}
+# Train/test split
+set.seed(123)
+split <- initial_split(admits, prop = 0.7, strata = enrollment)
+train <- training(split)
+test <- testing(split)
+```
+
+## Undersampling
+
+I applied **random undersampling** using `downSample()` to reduce the size of the majority class (`0 - not enrolled`) to match the minority class (`1 - enrolled`). This technique helps the model learn more balanced decision boundaries.
+
+```{r}
+# Undersample majority class
+train_under <- downSample(x = train[, -which(names(train) == "enrollment")],
+                          y = train$enrollment, yname = "enrollment")
+
+```
+
+#### Training set before undersampling
+
+```{r}
+table(train$enrollment)
+```
+
+#### Training set after undersampling
+
+```{r}
+table(train_under$enrollment)
+```
+
+#### Fitting logistic model and making predictions
+
+Using the undersampled training set, I fit a logistic regression model to predict the likelihood of a student enrolling.
+
+```{r}
+# Fit logistic model
+model_under <- glm(enrollment ~ ., data = train_under, family = binomial)
+
+# Predict
+pred_under <- predict(model_under, newdata = test, type = "response")
+pred_class_under <- ifelse(pred_under > 0.5, 1, 0)
+```
+
+After fitting the model, I predicted enrollment outcomes on the original (unbalanced) test set and evaluated performance using a confusion matrix.
+
+```{r}
+# Evaluate
+conf_matrix_under <- confusionMatrix(factor(pred_class_under, levels = c(0,1)), test$enrollment)
+conf_matrix_under
+```
+
+The logistic regression model trained on the undersampled data achieved an accuracy of 82.2%, slightly above the baseline No Information Rate (81.3%). The balanced accuracy, accounting for both classes, was 80.7%, indicating reasonably fair performance across the imbalanced outcome.
+
+-   Sensitivity (Recall for class 0 – not enrolled): 83.1%
+
+-   Specificity (Recall for class 1 – enrolled): 78.3%
+
+-   Precision (for class 0): 94.4%
+
+-   Kappa: 0.51, suggesting moderate agreement beyond chance
+
+While the model performs well at identifying non-enrolled students, the negative predictive value (51.6%) indicates room for improvement in detecting enrolled students.
+
+## SMOTE
+
+To address the class imbalance more robustly, I applied SMOTE (Synthetic Minority Oversampling Technique) using the `themis` package. SMOTE creates synthetic examples of the minority class (enrolled students), helping the model learn from more representative and diverse samples without discarding majority-class data.
+
+Before applying SMOTE, I removed a small number of missing values in the `location` variable:
+
+```{r}
+train <- train %>% drop_na(location)
+
+smote_rec <- recipe(enrollment ~ ., data = train) %>%
+  step_smote(enrollment) %>%
+  step_normalize(all_numeric_predictors())
+```
+
+I created a modeling recipe that applies SMOTE and normalizes numeric predictors, followed by a logistic regression specification using `tidymodels`:
+
+```{r}
+# Logistic regression spec
+log_spec <- logistic_reg() %>%
+  set_engine("glm") %>%
+  set_mode("classification")
+
+# Build workflow
+log_wf <- workflow() %>%
+  add_recipe(smote_rec) %>%
+  add_model(log_spec)
+
+# Fit model
+log_fit <- fit(log_wf, data = train)
+
+```
+
+The logistic regression model was trained on the SMOTE-augmented dataset and evaluated on the untouched test set.
+
+```{r}
+pred_smote <- predict(log_fit, test, type = "prob") %>%
+  bind_cols(predict(log_fit, test)) %>%
+  bind_cols(test %>% select(enrollment))
+
+# 8. Evaluate performance
+conf_matrix_smote <- conf_mat(pred_smote, truth = enrollment, estimate = .pred_class)
+conf_matrix_smote
+```
+
+```{r}
+metrics_smote <- metric_set(yardstick::accuracy, yardstick::sensitivity, yardstick::specificity, yardstick::precision, yardstick::recall, yardstick::f_meas)
+
+metrics_table <- metrics_smote(pred_smote, truth = enrollment, estimate = .pred_class)
+metrics_table
+```
+
+The logistic regression model trained on SMOTE-augmented data achieved an accuracy of 82.7%, slightly outperforming both the baseline No Information Rate (81.3%) and the undersampled model. The balanced accuracy was 80.7%, suggesting fair performance across both enrolled and non-enrolled student groups.
+
+-   Sensitivity (Recall for class 0 – not enrolled): 83.9%
+
+-   Specificity (Recall for class 1 – enrolled): 77.4%
+
+-   Precision (for class 0): 94.2%
+
+-   F1 Score: 88.8%
+
+These results indicate that the model is highly effective at identifying non-enrolled students, with strong precision and recall. While the specificity is slightly lower than the sensitivity, the high F1 score suggests that the model strikes a solid balance between false positives and false negatives.
+
+## Weighted Logistic Regression
+
+To handle the imbalance between enrolled and non-enrolled students without losing data or generating synthetic samples, I applied class weighting during logistic regression training. This method penalizes misclassification of the minority class more heavily, encouraging the model to pay closer attention to enrolled students.
+
+```{r}
+class_weights <- ifelse(train$enrollment == 1,
+                        1 / sum(train$enrollment == 1),
+                        1 / sum(train$enrollment == 0))
+
+model_weighted <- glm(enrollment ~ ., data = train, family = binomial, weights = class_weights)
+```
+
+```{r}
+# Predict
+pred_weighted <- predict(model_weighted, newdata = test, type = "response")
+pred_class_weighted <- ifelse(pred_weighted > 0.5, 1, 0)
+
+# Evaluate
+conf_matrix_weighted <- confusionMatrix(factor(pred_class_weighted, levels = c(0,1)), test$enrollment)
+conf_matrix_weighted
+```
+
+The weighted logistic regression model yielded the following results on the test set:
+
+-   Accuracy (Recall for class 0 – not enrolled): 82.7%
+-   Sensitivity (Recall for class 0 – not enrolled): 83.7%
+-   Specificity (Recall for class 1 – enrolled): 78%
+-   Precision (for class 0): 94.3%
+
+This model maintains high accuracy and precision, while offering a strong trade-off between recall and specificity, similar to SMOTE.
+
+## Results and Comparison
+
+To address class imbalance, I evaluated three logistic regression models using undersampling, SMOTE, and class weighting:
+
+-   Undersampling achieved an accuracy of 82.2% and balanced accuracy of 80.7%, but at the cost of discarding majority-class data.
+
+-   SMOTE preserved all data and achieved the highest accuracy (82.7%) and F1 score (88.8%), offering strong performance across both classes.
+
+-   Weighted logistic regression matched SMOTE closely (accuracy 82.3%, F1 \~88.2%), using all data without synthetic samples.
+
+Both SMOTE and class weighting are effective, with SMOTE offering the best overall performance and class weighting providing a simpler, efficient alternative.
