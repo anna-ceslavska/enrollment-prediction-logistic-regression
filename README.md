@@ -18,17 +18,23 @@ To address this, the following three strategies are implemented and compared:
 
 - `modelling_logistic_regression.qmd` – Quarto source file
 - `modelling_logistic_regression.html` – Rendered HTML report (self-contained)
-- `enrollment3.xlsx` – Input dataset (external Excel file)
+- `enrollment3.xlsx` – Input dataset 
 
 ---
 
-## Tools & Libraries
+## R Libraries Used
 
-The analysis was conducted in R using:
-
-- `tidymodels`, `caret`, `themis`, `DMwR2`, `ROSE`
-- `readxl`, `rsample`, `janitor`, `glmnet`, `ggplot2`, `here`
-
+- `tidymodels`
+- `caret`
+- `themis`
+- `DMwR2`
+- `ROSE`
+- `rsample`
+- `glmnet`
+- `ggplot2`
+- `readxl`, `writexl`
+- `stringr`, `dplyr`, `here`, `skimr`
+  
 ---
 
 ##  Methodology
@@ -57,8 +63,8 @@ The analysis was conducted in R using:
 | Technique           | Accuracy | Balanced Accuracy | Sensitivity | Specificity | Precision | F1 Score |
 |---------------------|----------|-------------------|-------------|-------------|-----------|----------|
 | Undersampling       | 82.2%    | 80.7%             | 83.1%       | 78.3%       | 94.4%     | —        |
-| SMOTE               | **82.7%**| **80.7%**         | **83.9%**   | 77.4%       | 94.2%     | **88.8%**|
-| Weighted Regression | 82.3%    | ~80.9%            | 83.7%       | **78.0%**   | **94.3%** | ~88.2%   |
+| SMOTE               | 82.7%    | 80.7%**           | 83.9%       | 77.4%       | 94.2%     | 88.8%    |
+| Weighted Regression | 82.3%    | ~80.9%            | 83.7%       | 78.0%       | 94.3%     | ~88.2%   |
 
 ---
 
